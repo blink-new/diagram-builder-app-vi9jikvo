@@ -4,7 +4,6 @@ interface ShapeComponentProps {
   shape: Shape
   isSelected: boolean
   onMouseDown: (e: React.MouseEvent) => void
-  onMouseMove: (e: React.MouseEvent) => void
   onDoubleClick: () => void
 }
 
@@ -12,7 +11,6 @@ export function ShapeComponent({
   shape, 
   isSelected, 
   onMouseDown, 
-  onMouseMove, 
   onDoubleClick 
 }: ShapeComponentProps) {
   const { x, y, width, height, fill, stroke, strokeWidth, text, type } = shape
@@ -22,10 +20,10 @@ export function ShapeComponent({
       fill,
       stroke,
       strokeWidth,
-      className: `cursor-move ${isSelected ? 'drop-shadow-lg' : ''}`,
+      className: `cursor-move transition-all duration-150 ${isSelected ? 'drop-shadow-lg' : ''}`,
       onMouseDown,
-      onMouseMove,
-      onDoubleClick
+      onDoubleClick,
+      style: { userSelect: 'none' as const }
     }
 
     switch (type) {
@@ -80,14 +78,18 @@ export function ShapeComponent({
         textAnchor="middle"
         dominantBaseline="middle"
         className="fill-foreground text-sm font-medium pointer-events-none select-none"
-        style={{ fontSize: '14px' }}
+        style={{ 
+          fontSize: Math.max(12, Math.min(16, width / 8)),
+          userSelect: 'none'
+        }}
       >
         {text}
       </text>
       
-      {/* Selection outline */}
+      {/* Selection outline and handles */}
       {isSelected && (
         <>
+          {/* Selection outline */}
           <rect
             x={x - 2}
             y={y - 2}
@@ -97,19 +99,20 @@ export function ShapeComponent({
             stroke="hsl(var(--primary))"
             strokeWidth="2"
             strokeDasharray="5,5"
-            className="pointer-events-none"
+            className="pointer-events-none animate-pulse"
+            rx={type === 'rectangle' ? 6 : 0}
           />
           
           {/* Resize handles */}
           {[
-            { x: x - 4, y: y - 4 }, // top-left
-            { x: x + width - 4, y: y - 4 }, // top-right
-            { x: x - 4, y: y + height - 4 }, // bottom-left
-            { x: x + width - 4, y: y + height - 4 }, // bottom-right
-            { x: x + width / 2 - 4, y: y - 4 }, // top-center
-            { x: x + width / 2 - 4, y: y + height - 4 }, // bottom-center
-            { x: x - 4, y: y + height / 2 - 4 }, // left-center
-            { x: x + width - 4, y: y + height / 2 - 4 }, // right-center
+            { x: x - 4, y: y - 4, cursor: 'nw-resize' }, // top-left
+            { x: x + width - 4, y: y - 4, cursor: 'ne-resize' }, // top-right
+            { x: x - 4, y: y + height - 4, cursor: 'sw-resize' }, // bottom-left
+            { x: x + width - 4, y: y + height - 4, cursor: 'se-resize' }, // bottom-right
+            { x: x + width / 2 - 4, y: y - 4, cursor: 'n-resize' }, // top-center
+            { x: x + width / 2 - 4, y: y + height - 4, cursor: 's-resize' }, // bottom-center
+            { x: x - 4, y: y + height / 2 - 4, cursor: 'w-resize' }, // left-center
+            { x: x + width - 4, y: y + height / 2 - 4, cursor: 'e-resize' }, // right-center
           ].map((handle, index) => (
             <rect
               key={index}
@@ -119,8 +122,10 @@ export function ShapeComponent({
               height={8}
               fill="hsl(var(--primary))"
               stroke="hsl(var(--background))"
-              strokeWidth="1"
-              className="cursor-nw-resize"
+              strokeWidth="2"
+              className="cursor-pointer hover:scale-110 transition-transform"
+              style={{ cursor: handle.cursor }}
+              rx={1}
             />
           ))}
         </>

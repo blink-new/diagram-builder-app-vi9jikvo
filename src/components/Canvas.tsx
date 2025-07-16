@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useRef, useState } from 'react'
+import { forwardRef, useCallback, useRef, useState, useEffect } from 'react'
 import { Shape, Connection, Tool } from './DiagramBuilder'
 import { ShapeComponent } from './ShapeComponent'
 
@@ -16,85 +16,139 @@ interface CanvasProps {
   onPanChange: (pan: { x: number; y: number }) => void
 }
 
-export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(({
-  shapes,
-  connections,
-  selectedShapeId,
-  activeTool,
-  zoom,
-  pan,
-  onAddShape,
-  onSelectShape,
-  onUpdateShape,
-  onDeleteShape,
-  onPanChange
-}, ref) => {
+export const Canvas = forwardRef<HTMLDivElement, CanvasProps>((props, ref) => {
+  const {
+    shapes,
+    connections,
+    selectedShapeId,
+    activeTool,
+    zoom,
+    pan,
+    onAddShape,
+    onSelectShape,
+    onUpdateShape,
+    onDeleteShape,
+    onPanChange
+  } = props
+
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [dragShape, setDragShape] = useState<string | null>(null)
+  const [isPanning, setIsPanning] = useState(false)
   const svgRef = useRef<SVGSVGElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
-  const handleCanvasClick = useCallback((e: React.MouseEvent) => {
-    if (isDragging) return
-    
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = (e.clientX - rect.left - pan.x) / zoom
-    const y = (e.clientY - rect.top - pan.y) / zoom
-
-    if (activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'diamond') {
-      onAddShape(activeTool, x, y)
-    } else if (activeTool === 'select') {
-      onSelectShape(null)
+  // Convert screen coordinates to canvas coordinates
+  const screenToCanvas = useCallback((screenX: number, screenY: number) => {
+    if (!containerRef.current) return { x: 0, y: 0 }
+    const rect = containerRef.current.getBoundingClientRect()
+    return {
+      x: (screenX - rect.left - pan.x) / zoom,
+      y: (screenY - rect.top - pan.y) / zoom
     }
-  }, [activeTool, zoom, pan, onAddShape, onSelectShape, isDragging])
+  }, [zoom, pan])
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    
     if (activeTool === 'pan') {
-      setIsDragging(true)
+      setIsPanning(true)
       setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
     }
   }, [activeTool, pan])
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isDragging && activeTool === 'pan') {
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isPanning && activeTool === 'pan') {
       onPanChange({
         x: e.clientX - dragStart.x,
         y: e.clientY - dragStart.y
       })
     }
-  }, [isDragging, activeTool, dragStart, onPanChange])
+    
+    if (dragShape && activeTool === 'select') {
+      const canvasPos = screenToCanvas(e.clientX, e.clientY)
+      onUpdateShape(dragShape, { 
+        x: canvasPos.x - dragStart.x, 
+        y: canvasPos.y - dragStart.y 
+      })
+    }
+  }, [isPanning, activeTool, dragStart, onPanChange, dragShape, screenToCanvas, onUpdateShape])
 
-  const handleMouseUp = useCallback(() => {
+  const handleCanvasMouseUp = useCallback(() => {
+    setIsPanning(false)
     setIsDragging(false)
     setDragShape(null)
   }, [])
 
+  const handleCanvasClick = useCallback((e: React.MouseEvent) => {
+    if (isDragging || isPanning) return
+    
+    const canvasPos = screenToCanvas(e.clientX, e.clientY)
+
+    if (activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'diamond') {
+      onAddShape(activeTool, canvasPos.x, canvasPos.y)
+    } else if (activeTool === 'select') {
+      onSelectShape(null)
+    }
+  }, [activeTool, screenToCanvas, onAddShape, onSelectShape, isDragging, isPanning])
+
   const handleShapeMouseDown = useCallback((e: React.MouseEvent, shapeId: string) => {
     e.stopPropagation()
+    
     if (activeTool === 'select') {
       onSelectShape(shapeId)
       setDragShape(shapeId)
-      const rect = e.currentTarget.getBoundingClientRect()
+      setIsDragging(true)
+      
       const shape = shapes.find(s => s.id === shapeId)
       if (shape) {
+        const canvasPos = screenToCanvas(e.clientX, e.clientY)
         setDragStart({
-          x: e.clientX - shape.x * zoom - pan.x,
-          y: e.clientY - shape.y * zoom - pan.y
+          x: canvasPos.x - shape.x,
+          y: canvasPos.y - shape.y
         })
       }
     }
-  }, [activeTool, onSelectShape, shapes, zoom, pan])
+  }, [activeTool, onSelectShape, shapes, screenToCanvas])
 
-  const handleShapeMouseMove = useCallback((e: React.MouseEvent) => {
-    if (dragShape && activeTool === 'select') {
-      const newX = (e.clientX - dragStart.x - pan.x) / zoom
-      const newY = (e.clientY - dragStart.y - pan.y) / zoom
-      onUpdateShape(dragShape, { x: newX, y: newY })
+  // Add global mouse event listeners for better drag handling
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (isPanning && activeTool === 'pan') {
+        onPanChange({
+          x: e.clientX - dragStart.x,
+          y: e.clientY - dragStart.y
+        })
+      }
+      
+      if (dragShape && activeTool === 'select') {
+        const canvasPos = screenToCanvas(e.clientX, e.clientY)
+        onUpdateShape(dragShape, { 
+          x: canvasPos.x - dragStart.x, 
+          y: canvasPos.y - dragStart.y 
+        })
+      }
     }
-  }, [dragShape, activeTool, dragStart, pan, zoom, onUpdateShape])
+
+    const handleGlobalMouseUp = () => {
+      setIsPanning(false)
+      setIsDragging(false)
+      setDragShape(null)
+    }
+
+    if (isPanning || dragShape) {
+      document.addEventListener('mousemove', handleGlobalMouseMove)
+      document.addEventListener('mouseup', handleGlobalMouseUp)
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleGlobalMouseMove)
+      document.removeEventListener('mouseup', handleGlobalMouseUp)
+    }
+  }, [isPanning, dragShape, activeTool, dragStart, onPanChange, screenToCanvas, onUpdateShape])
 
   // Grid pattern
-  const gridSize = 20
+  const gridSize = 20 * zoom
   const gridPattern = (
     <defs>
       <pattern
@@ -114,25 +168,37 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(({
     </defs>
   )
 
+  const getCursor = () => {
+    if (activeTool === 'pan') return isPanning ? 'grabbing' : 'grab'
+    if (activeTool === 'select') return dragShape ? 'grabbing' : 'default'
+    return 'crosshair'
+  }
+
   return (
     <div
-      ref={ref}
-      className="w-full h-full bg-background cursor-crosshair overflow-hidden"
+      ref={containerRef}
+      className="w-full h-full bg-background overflow-hidden relative"
+      style={{ cursor: getCursor() }}
+      onMouseDown={handleCanvasMouseDown}
+      onMouseMove={handleCanvasMouseMove}
+      onMouseUp={handleCanvasMouseUp}
       onClick={handleCanvasClick}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      style={{ cursor: activeTool === 'pan' ? 'grab' : activeTool === 'select' ? 'default' : 'crosshair' }}
     >
       <svg
         ref={svgRef}
         className="w-full h-full"
         style={{
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          transformOrigin: '0 0'
         }}
       >
         {gridPattern}
-        <rect width="100%" height="100%" fill="url(#grid)" />
+        <rect 
+          width="100%" 
+          height="100%" 
+          fill="url(#grid)" 
+          className="pointer-events-none" 
+        />
         
         {/* Render connections */}
         {connections.map((connection) => (
@@ -174,9 +240,7 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(({
             shape={shape}
             isSelected={selectedShapeId === shape.id}
             onMouseDown={(e) => handleShapeMouseDown(e, shape.id)}
-            onMouseMove={handleShapeMouseMove}
             onDoubleClick={() => {
-              // Enable text editing
               const newText = prompt('Enter text:', shape.text)
               if (newText !== null) {
                 onUpdateShape(shape.id, { text: newText })
@@ -188,3 +252,5 @@ export const Canvas = forwardRef<HTMLDivElement, CanvasProps>(({
     </div>
   )
 })
+
+Canvas.displayName = 'Canvas'

@@ -1,10 +1,11 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useTheme } from 'next-themes'
 import { Button } from './ui/button'
 import { Card } from './ui/card'
 import { Separator } from './ui/separator'
 import { Switch } from './ui/switch'
 import { Label } from './ui/label'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip'
 import { 
   Sun, 
   Moon, 
@@ -15,7 +16,8 @@ import {
   ZoomOut, 
   Download,
   Move,
-  MousePointer
+  MousePointer,
+  Keyboard
 } from 'lucide-react'
 import { Canvas } from './Canvas'
 import { Toolbar } from './Toolbar'
@@ -58,14 +60,14 @@ export function DiagramBuilder() {
 
   const handleAddShape = useCallback((type: Shape['type'], x: number, y: number) => {
     const newShape: Shape = {
-      id: `shape-${Date.now()}`,
+      id: `shape-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       type,
       x: x - 50,
       y: y - 25,
-      width: 100,
-      height: 50,
-      fill: theme === 'dark' ? '#374151' : '#f3f4f6',
-      stroke: theme === 'dark' ? '#6b7280' : '#9ca3af',
+      width: type === 'circle' ? 80 : 100,
+      height: type === 'circle' ? 80 : 50,
+      fill: theme === 'dark' ? '#1f2937' : '#f8fafc',
+      stroke: theme === 'dark' ? '#4b5563' : '#64748b',
       strokeWidth: 2,
       text: type.charAt(0).toUpperCase() + type.slice(1)
     }
@@ -87,8 +89,8 @@ export function DiagramBuilder() {
     }
   }, [selectedShapeId])
 
-  const handleZoomIn = () => setZoom(prev => Math.min(prev * 1.2, 3))
-  const handleZoomOut = () => setZoom(prev => Math.max(prev / 1.2, 0.3))
+  const handleZoomIn = useCallback(() => setZoom(prev => Math.min(prev * 1.2, 3)), [])
+  const handleZoomOut = useCallback(() => setZoom(prev => Math.max(prev / 1.2, 0.3)), [])
 
   const handleExport = () => {
     const data = { shapes, connections, zoom, pan }
@@ -101,10 +103,82 @@ export function DiagramBuilder() {
     URL.revokeObjectURL(url)
   }
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return // Don't trigger when typing in inputs
+      
+      switch (e.key) {
+        case 'Delete':
+        case 'Backspace':
+          if (selectedShapeId) {
+            handleDeleteShape(selectedShapeId)
+          }
+          break
+        case 'Escape':
+          setSelectedShapeId(null)
+          setActiveTool('select')
+          break
+        case 'v':
+          if (!e.ctrlKey && !e.metaKey) {
+            setActiveTool('select')
+          }
+          break
+        case 'r':
+          if (!e.ctrlKey && !e.metaKey) {
+            setActiveTool('rectangle')
+          }
+          break
+        case 'c':
+          if (!e.ctrlKey && !e.metaKey) {
+            setActiveTool('circle')
+          }
+          break
+        case 'd':
+          if (!e.ctrlKey && !e.metaKey) {
+            setActiveTool('diamond')
+          }
+          break
+        case ' ':
+          e.preventDefault()
+          setActiveTool('pan')
+          break
+        case '+':
+        case '=':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            handleZoomIn()
+          }
+          break
+        case '-':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            handleZoomOut()
+          }
+          break
+      }
+    }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ' && activeTool === 'pan') {
+        setActiveTool('select')
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('keyup', handleKeyUp)
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [selectedShapeId, activeTool, handleDeleteShape, handleZoomIn, handleZoomOut])
+
   return (
-    <div className="h-screen flex flex-col bg-background">
-      {/* Top Navigation */}
-      <header className="border-b bg-card px-4 py-2 flex items-center justify-between">
+    <TooltipProvider>
+      <div className="h-screen flex flex-col bg-background">
+        {/* Top Navigation */}
+        <header className="border-b bg-card px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-semibold">Diagram Builder</h1>
           <Separator orientation="vertical" className="h-6" />
@@ -145,6 +219,26 @@ export function DiagramBuilder() {
             <Download className="w-4 h-4 mr-2" />
             Export
           </Button>
+          
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm">
+                <Keyboard className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              <div className="text-xs space-y-1">
+                <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">V</kbd> Select tool</div>
+                <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">R</kbd> Rectangle</div>
+                <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">C</kbd> Circle</div>
+                <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">D</kbd> Diamond</div>
+                <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">Space</kbd> Pan (hold)</div>
+                <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">Del</kbd> Delete selected</div>
+                <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">Esc</kbd> Deselect</div>
+                <div><kbd className="px-1 py-0.5 bg-muted rounded text-xs">Ctrl +/-</kbd> Zoom</div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
           
           <div className="flex items-center gap-2">
             <Sun className="w-4 h-4" />
@@ -188,7 +282,8 @@ export function DiagramBuilder() {
           onUpdateShape={handleUpdateShape}
           onDeleteShape={handleDeleteShape}
         />
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   )
 }
